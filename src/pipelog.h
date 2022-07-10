@@ -18,10 +18,15 @@ struct Pipelog_Output {
     int fd;
 };
 
-enum Pipelog_Flags {
-    PIPELOG_NONE                = 0,
-    PIPELOG_QUIET               = 1,
-    PIPELOG_EXIT_ON_WRITE_ERROR = 2,
+enum {
+    PIPELOG_NONE                =  0,
+    PIPELOG_QUIET               =  1,
+    PIPELOG_EXIT_ON_WRITE_ERROR =  2,
+    PIPELOG_NO_SPLICE           =  4,
+    // internal use only:
+    PIPELOG_FORCE_ROTATE        =  8,
+    PIPELOG_BLOCK_SIGHUP        = 16,
+    PIPELOG_SPLICE              = 32,
 };
 
 int pipelog(int fd, const struct Pipelog_Output output[], size_t count, const char *pidfile, unsigned int flags);

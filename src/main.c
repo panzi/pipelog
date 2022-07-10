@@ -11,19 +11,21 @@
 
 enum {
     OPT_HELP,
+    OPT_VERSION,
     OPT_PID,
     OPT_QUIET,
     OPT_EXIT_ON_WRITE_ERROR,
-    OPT_VERSION,
+    OPT_NO_SPLICE,
     OPT_COUNT,
 };
 
 static const struct option options[] = {
     [OPT_HELP]                = { "help",                no_argument,       0, 'h' },
+    [OPT_VERSION]             = { "version",             no_argument,       0, 'v' },
     [OPT_PID]                 = { "pidfile",             required_argument, 0, 'p' },
     [OPT_QUIET]               = { "quiet",               no_argument,       0, 'q' },
     [OPT_EXIT_ON_WRITE_ERROR] = { "exit-on-write-error", no_argument,       0, 'e' },
-    [OPT_VERSION]             = { "version",             no_argument,       0, 'v' },
+    [OPT_NO_SPLICE]           = { "no-splice",           no_argument,       0, 'S' },
     [OPT_COUNT]               = { 0, 0, 0, 0 },
 };
 
@@ -55,6 +57,9 @@ static void usage(int argc, char *argv[]) {
         "If SIGHUP is sent to pipelog it re-opens all it's open files. This may lead\n"
         "the creation of new empty log files if the timestamp changed.\n"
         "\n"
+        "If there is only one output file splice() is used to transfer data without\n"
+        "user space copies.\n"
+        "\n"
         "\n"
         "OPTIONS:\n"
         "    -h, --help                 Print this help message.\n"
@@ -63,6 +68,8 @@ static void usage(int argc, char *argv[]) {
         "    -q, --quiet                Don't print error messages.\n"
         "    -e, --exit-on-write-error  Exit if writing to any output fails or when\n"
         "                               opening log files on log rotate fails.\n"
+        "    -S, --no-splice            Don't try to use splice() system call in case\n"
+        "                               there is only one output file\n"
         "\n"
         "\n"
         "EXAMPLE:\n"
@@ -87,7 +94,7 @@ int main(int argc, char *argv[]) {
     const char *pidfile = NULL;
 
     for (;;) {
-        int opt = getopt_long(argc, argv, "hqev", options, &longind);
+        int opt = getopt_long(argc, argv, "hvpqeS", options, &longind);
 
         if (opt == -1) {
             break;
@@ -117,6 +124,10 @@ int main(int argc, char *argv[]) {
 
             case 'e':
                 flags |= PIPELOG_EXIT_ON_WRITE_ERROR;
+                break;
+
+            case 'S':
+                flags |= PIPELOG_NO_SPLICE;
                 break;
 
             case '?':

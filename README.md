@@ -25,6 +25,9 @@ This is of course only possible when FILE is a path.
 If SIGHUP is sent to pipelog it re-opens all it's open files. This may lead
 the creation of new empty log files if the timestamp changed.
 
+If there is only one output file splice() is used to transfer data without
+user space copies.
+
 
 OPTIONS:
     -h, --help                 Print this help message.
@@ -33,6 +36,8 @@ OPTIONS:
     -q, --quiet                Don't print error messages.
     -e, --exit-on-write-error  Exit if writing to any output fails or when
                                opening log files on log rotate fails.
+    -S, --no-splice            Don't try to use splice() system call in case
+                               there is only one output file
 
 
 EXAMPLE:
