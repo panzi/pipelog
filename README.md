@@ -27,9 +27,11 @@ the creation of new empty log files if the timestamp changed.
 
 
 OPTIONS:
-    -h, --help                 Print this help message
-    -q, --quiet                Don't print error messages
-    -e, --exit-on-write-error  Exits if writing to any output fails or when
+    -h, --help                 Print this help message.
+    -v, --version              Print version.
+    -p, --pidfile=FILE         Write pipelog's process ID to FILE.
+    -q, --quiet                Don't print error messages.
+    -e, --exit-on-write-error  Exit if writing to any output fails or when
                                opening log files on log rotate fails.
 
 

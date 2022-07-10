@@ -24,7 +24,7 @@ enum Pipelog_Flags {
     PIPELOG_EXIT_ON_WRITE_ERROR = 2,
 };
 
-int pipelog(int fd, const struct Pipelog_Output output[], size_t count, unsigned int flags);
+int pipelog(int fd, const struct Pipelog_Output output[], size_t count, const char *pidfile, unsigned int flags);
 
 #ifdef __cplusplus
 }

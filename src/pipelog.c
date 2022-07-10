@@ -84,7 +84,7 @@ static int make_parent_dirs(const char *path, mode_t mode) {
     return 0;
 }
 
-int pipelog(const int fd, const struct Pipelog_Output output[], const size_t count, const unsigned int flags) {
+int pipelog(const int fd, const struct Pipelog_Output output[], const size_t count, const char *pidfile, const unsigned int flags) {
     char buf[BUFSIZ];
     char link_target[PATH_MAX];
     int status = 0;
@@ -113,9 +113,10 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
         sigset_t mask;
         sigemptyset(&mask);
         sigaddset(&mask, SIGPIPE);
+        sigaddset(&mask, SIGHUP);
         if (sigprocmask(SIG_BLOCK, &mask, NULL) != 0) {
             if (!(flags & PIPELOG_QUIET)) {
-                fprintf(stderr, "*** error: blocking SIGPIPE: %s\n", strerror(errno));
+                fprintf(stderr, "*** error: blocking SIGPIPE and SIGHUP: %s\n", strerror(errno));
             }
             status = 1;
             goto cleanup;
@@ -136,7 +137,34 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
             status = 1;
             goto cleanup;
         }
+
+        if (pidfile != NULL) {
+            if (make_parent_dirs(pidfile, 755) != 0) {
+                if (!(flags & PIPELOG_QUIET)) {
+                    fprintf(stderr, "*** error: creating parent directories of pidfile \"%s\": %s\n", pidfile, strerror(errno));
+                }
+                status = 1;
+                goto cleanup;
+            }
+
+            FILE *fp = fopen(pidfile, "wx");
+            if (fp == NULL) {
+                if (!(flags & PIPELOG_QUIET)) {
+                    fprintf(stderr, "*** error: opening pidfile \"%s\": %s\n", pidfile, strerror(errno));
+                }
+                status = 1;
+                goto cleanup;
+            }
+            const pid_t pid = getpid();
+            fprintf(fp, "%d\n", pid);
+
+            fclose(fp);
+        }
     }
+
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGHUP);
 
     bool any_rotate = false;
     for (; init_count < count; ++ init_count) {
@@ -256,9 +284,13 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
         }
     }
 
-    sigset_t mask;
-    sigemptyset(&mask);
-    sigaddset(&mask, SIGHUP);
+    if (sigprocmask(SIG_UNBLOCK, &mask, NULL) != 0) {
+        if (!(flags & PIPELOG_QUIET)) {
+            fprintf(stderr, "*** error: unblocking SIGHUP: %s\n", strerror(errno));
+        }
+        status = 1;
+        goto cleanup;
+    }
 
     for (;;) {
         bool forced_rotate = false;
@@ -449,6 +481,13 @@ cleanup:
     }
     free(state);
     state = NULL;
+
+    if (pidfile != NULL && unlink(pidfile) != 0) {
+        if (!(flags & PIPELOG_QUIET)) {
+            fprintf(stderr, "*** error: removing pidfile \"%s\": %s\n", pidfile, strerror(errno));
+        }
+        status = 1;
+    }
 
     return status;
 }

@@ -11,6 +11,7 @@
 
 enum {
     OPT_HELP,
+    OPT_PID,
     OPT_QUIET,
     OPT_EXIT_ON_WRITE_ERROR,
     OPT_VERSION,
@@ -19,6 +20,7 @@ enum {
 
 static const struct option options[] = {
     [OPT_HELP]                = { "help",                no_argument,       0, 'h' },
+    [OPT_PID]                 = { "pidfile",             required_argument, 0, 'p' },
     [OPT_QUIET]               = { "quiet",               no_argument,       0, 'q' },
     [OPT_EXIT_ON_WRITE_ERROR] = { "exit-on-write-error", no_argument,       0, 'e' },
     [OPT_VERSION]             = { "version",             no_argument,       0, 'v' },
@@ -55,9 +57,11 @@ static void usage(int argc, char *argv[]) {
         "\n"
         "\n"
         "OPTIONS:\n"
-        "    -h, --help                 Print this help message\n"
-        "    -q, --quiet                Don't print error messages\n"
-        "    -e, --exit-on-write-error  Exits if writing to any output fails or when\n"
+        "    -h, --help                 Print this help message.\n"
+        "    -v, --version              Print version.\n"
+        "    -p, --pidfile=FILE         Write pipelog's process ID to FILE.\n"
+        "    -q, --quiet                Don't print error messages.\n"
+        "    -e, --exit-on-write-error  Exit if writing to any output fails or when\n"
         "                               opening log files on log rotate fails.\n"
         "\n"
         "\n"
@@ -80,7 +84,8 @@ static void usage(int argc, char *argv[]) {
 int main(int argc, char *argv[]) {
     int flags = PIPELOG_NONE;
     int longind = 0;
-    
+    const char *pidfile = NULL;
+
     for (;;) {
         int opt = getopt_long(argc, argv, "hqev", options, &longind);
 
@@ -101,6 +106,10 @@ int main(int argc, char *argv[]) {
             case 'v':
                 printf("%d.%d.%d\n", PIPELOG_VERSION_MAJOR, PIPELOG_VERSION_MINOR, PIPELOG_VERSION_PATCH);
                 return 0;
+
+            case 'p':
+                pidfile = optarg;
+                break;
 
             case 'q':
                 flags |= PIPELOG_QUIET;
@@ -200,7 +209,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    const int status = pipelog(STDIN_FILENO, output, count, flags);
+    const int status = pipelog(STDIN_FILENO, output, count, pidfile, flags);
 
     free(output);
 
