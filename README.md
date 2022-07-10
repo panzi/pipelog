@@ -33,11 +33,13 @@ OPTIONS:
     -h, --help                 Print this help message.
     -v, --version              Print version.
     -p, --pidfile=FILE         Write pipelog's process ID to FILE.
+    -f, --fifo=FILE            Read input from FILE, create FILE as fifo if
+                               not exists and re-open file when at end.
     -q, --quiet                Don't print error messages.
     -e, --exit-on-write-error  Exit if writing to any output fails or when
                                opening log files on log rotate fails.
     -S, --no-splice            Don't try to use splice() system call in case
-                               there is only one output file
+                               there is only one output file.
 
 
 EXAMPLE:
