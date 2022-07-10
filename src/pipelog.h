@@ -2,7 +2,12 @@
 #define PIPELOG_H
 #pragma once
 
+#define _DEFAULT_SOURCE 1
+#define _GNU_SOURCE
+#define _FILE_OFFSET_BITS 64
+
 #include <stddef.h>
+#include <sys/types.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,7 +34,15 @@ enum {
     PIPELOG_SPLICE              = 32,
 };
 
-int pipelog(int fd, const struct Pipelog_Output output[], size_t count, const char *pidfile, unsigned int flags);
+enum {
+    PIPELOG_SUCCESS     = 0,
+    PIPELOG_ERROR       = 1,
+    PIPELOG_INTERRUPTED = 2,
+};
+
+int make_parent_dirs(const char *path, mode_t mode);
+
+int pipelog(int fd, const struct Pipelog_Output output[], size_t count, unsigned int flags);
 
 #ifdef __cplusplus
 }

@@ -1,7 +1,3 @@
-#define _DEFAULT_SOURCE 1
-#define _GNU_SOURCE
-#define _FILE_OFFSET_BITS 64
-
 #include "pipelog.h"
 
 #include <stdio.h>
@@ -25,20 +21,14 @@ struct Pipelog_State {
     int fd;         //!< opened filename
 };
 
-static void handle_sigint(int sig) {
-    if (isatty(STDERR_FILENO)) {
-        fprintf(stderr, "\n");
-    }
-}
-
 static volatile bool received_sighup = false;
 
 static void handle_sighup(int sig) {
     received_sighup = true;
 }
 
-// UNIX-only
-static int make_parent_dirs(const char *path, mode_t mode) {
+// logic works for UNIX-only
+int make_parent_dirs(const char *path, mode_t mode) {
     char *buf = strdup(path);
     if (buf == NULL) {
         return -1;
@@ -99,7 +89,9 @@ static int get_outfd(const struct Pipelog_Output output[], struct Pipelog_State 
         const struct Pipelog_Output *out = &output[index];
         if (strftime(buf, sizeof(buf), out->filename, local_now) == 0) {
             if (!(flags & PIPELOG_QUIET)) {
-                fprintf(stderr, "*** error: output[%zu]: cannot format logfile \"%s\": %s\n", index, out->filename, strerror(errno));
+                const int errnum = errno;
+                fprintf(stderr, "*** error: output[%zu]: cannot format logfile \"%s\": %s\n", index, out->filename, strerror(errnum));
+                errno = errnum;
             }
             outfd = -1;
             goto cleanup;
@@ -114,7 +106,9 @@ static int get_outfd(const struct Pipelog_Output output[], struct Pipelog_State 
 
                 if (sigprocmask(SIG_BLOCK, &mask, NULL) != 0) {
                     if (!(flags & PIPELOG_QUIET)) {
-                        fprintf(stderr, "*** error: blocking SIGHUP: %s\n", strerror(errno));
+                        const int errnum = errno;
+                        fprintf(stderr, "*** error: blocking SIGHUP: %s\n", strerror(errnum));
+                        errno = errnum;
                     }
                     outfd = -1;
                     goto cleanup;
@@ -135,7 +129,9 @@ static int get_outfd(const struct Pipelog_Output output[], struct Pipelog_State 
                 char *filename = realloc(ptr->filename, len);
                 if (filename == NULL) {
                     if (!(flags & PIPELOG_QUIET)) {
-                        fprintf(stderr, "*** error: output[%zu]: cannot allocate string \"%s\": %s\n", index, buf, strerror(errno));
+                        const int errnum = errno;
+                        fprintf(stderr, "*** error: output[%zu]: cannot allocate string \"%s\": %s\n", index, buf, strerror(errnum));
+                        errno = errnum;
                     }
                     outfd = -1;
                     goto cleanup;
@@ -152,7 +148,9 @@ static int get_outfd(const struct Pipelog_Output output[], struct Pipelog_State 
             if (outfd < 0 && errno == ENOENT) {
                 if (make_parent_dirs(ptr->filename, 0755) != 0) {
                     if (!(flags & PIPELOG_QUIET)) {
-                        fprintf(stderr, "*** error: output[%zu]: cannot create parent path of \"%s\": %s\n", index, ptr->filename, strerror(errno));
+                        const int errnum = errno;
+                        fprintf(stderr, "*** error: output[%zu]: cannot create parent path of \"%s\": %s\n", index, ptr->filename, strerror(errnum));
+                        errno = errnum;
                     }
                     outfd = -1;
                     goto cleanup;
@@ -162,23 +160,24 @@ static int get_outfd(const struct Pipelog_Output output[], struct Pipelog_State 
 
             if (outfd < 0) {
                 if (!(flags & PIPELOG_QUIET)) {
-                    fprintf(stderr, "*** error: output[%zu]: opening file \"%s\": %s\n", index, ptr->filename, strerror(errno));
+                    const int errnum = errno;
+                    fprintf(stderr, "*** error: output[%zu]: opening file \"%s\": %s\n", index, ptr->filename, strerror(errnum));
+                    errno = errnum;
                 }
 
-                if (flags & PIPELOG_EXIT_ON_WRITE_ERROR) {
-                    outfd = -1;
-                    goto cleanup;
-                }
+                outfd = -1;
+                goto cleanup;
             } else {
                 if ((flags & PIPELOG_SPLICE) && lseek(outfd, 0, SEEK_END) == (off_t)-1) {
                     const int errnum = errno;
                     if (errnum != EPIPE) {
                         if (!(flags & PIPELOG_QUIET)) {
-                            fprintf(stderr, "*** error: output[%zu]: seeking file to end \"%s\": %s\n", index, ptr->filename, strerror(errno));
+                            fprintf(stderr, "*** error: output[%zu]: seeking file to end \"%s\": %s\n", index, ptr->filename, strerror(errnum));
                         }
                         if (flags & PIPELOG_EXIT_ON_WRITE_ERROR) {
                             close(outfd);
                             ptr->fd = outfd = -1;
+                            errno = errnum;
                         }
                         goto cleanup;
                     }
@@ -186,35 +185,41 @@ static int get_outfd(const struct Pipelog_Output output[], struct Pipelog_State 
 
                 if (new_name && out->link != NULL) {
                     if (unlink(out->link) != 0 && errno != ENOENT) {
+                        const int errnum = errno;
                         if (!(flags & PIPELOG_QUIET)) {
-                            fprintf(stderr, "*** error: output[%zu]: cannot unlink \"%s\": %s\n", index, out->link, strerror(errno));
+                            fprintf(stderr, "*** error: output[%zu]: cannot unlink \"%s\": %s\n", index, out->link, strerror(errnum));
                         }
                         if (flags & PIPELOG_EXIT_ON_WRITE_ERROR) {
                             close(outfd);
                             ptr->fd = outfd = -1;
+                            errno = errnum;
                         }
                         goto cleanup;
                     }
 
                     char *absfilename = realpath(ptr->filename, buf);
                     if (absfilename == NULL) {
+                        const int errnum = errno;
                         if (!(flags & PIPELOG_QUIET)) {
-                            fprintf(stderr, "*** error: output[%zu]: cannot get absolute path of \"%s\": %s\n", index, ptr->filename, strerror(errno));
+                            fprintf(stderr, "*** error: output[%zu]: cannot get absolute path of \"%s\": %s\n", index, ptr->filename, strerror(errnum));
                         }
                         if (flags & PIPELOG_EXIT_ON_WRITE_ERROR) {
                             close(outfd);
                             ptr->fd = outfd = -1;
+                            errno = errnum;
                         }
                         goto cleanup;
                     }
 
                     if (symlink(absfilename, out->link) != 0) {
+                        const int errnum = errno;
                         if (!(flags & PIPELOG_QUIET)) {
-                            fprintf(stderr, "*** error: output[%zu]: cannot create symbolic link at \"%s\": %s\n", index, out->link, strerror(errno));
+                            fprintf(stderr, "*** error: output[%zu]: cannot create symbolic link at \"%s\": %s\n", index, out->link, strerror(errnum));
                         }
                         if (flags & PIPELOG_EXIT_ON_WRITE_ERROR) {
                             close(outfd);
                             ptr->fd = outfd = -1;
+                            errno = errnum;
                         }
                         goto cleanup;
                     }
@@ -224,28 +229,34 @@ static int get_outfd(const struct Pipelog_Output output[], struct Pipelog_State 
     }
 
 cleanup:
-    if (unblock_sighup && sigprocmask(SIG_UNBLOCK, &mask, NULL) != 0) {
-        if (!(flags & PIPELOG_QUIET)) {
-            fprintf(stderr, "*** error: unblocking SIGHUP: %s\n", strerror(errno));
+
+    if (unblock_sighup) {
+        const int errnum = errno;
+        if (sigprocmask(SIG_UNBLOCK, &mask, NULL) != 0) {
+            if (!(flags & PIPELOG_QUIET)) {
+                fprintf(stderr, "*** error: unblocking SIGHUP: %s\n", strerror(errno));
+            }
         }
+        errno = errnum;
     }
 
     return outfd;
 }
 
-int pipelog(const int fd, const struct Pipelog_Output output[], const size_t count, const char *pidfile, const unsigned int flags) {
+int pipelog(const int fd, const struct Pipelog_Output output[], const size_t count, const unsigned int flags) {
     char buf[BUFSIZ];
     char link_target[PATH_MAX];
-    int status = 0;
+    int status = PIPELOG_SUCCESS;
     size_t init_count = 0;
     struct Pipelog_State *state = calloc(count, sizeof(struct Pipelog_State));
     struct tm local_now;
+    sighandler_t old_handle_sighup = SIG_ERR;
 
     if (state == NULL) {
         if (!(flags & PIPELOG_QUIET)) {
             fprintf(stderr, "*** error: allocating memory: %s\n", strerror(errno));
         }
-        status = 1;
+        status = PIPELOG_ERROR;
         goto cleanup;
     }
 
@@ -255,7 +266,7 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
             if (!(flags & PIPELOG_QUIET)) {
                 fprintf(stderr, "*** error: getting local time: %s\n", strerror(errno));
             }
-            status = 1;
+            status = PIPELOG_ERROR;
             goto cleanup;
         }
 
@@ -267,47 +278,16 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
             if (!(flags & PIPELOG_QUIET)) {
                 fprintf(stderr, "*** error: blocking SIGPIPE and SIGHUP: %s\n", strerror(errno));
             }
-            status = 1;
+            status = PIPELOG_ERROR;
             goto cleanup;
         }
 
-        if (signal(SIGINT, handle_sigint) == SIG_ERR) {
-            if (!(flags & PIPELOG_QUIET)) {
-                fprintf(stderr, "*** error: signal(SIGINT, handle_sigint): %s\n", strerror(errno));
-            }
-            status = 1;
-            goto cleanup;
-        }
-
-        if (signal(SIGHUP, handle_sighup) == SIG_ERR) {
+        if ((old_handle_sighup = signal(SIGHUP, handle_sighup)) == SIG_ERR) {
             if (!(flags & PIPELOG_QUIET)) {
                 fprintf(stderr, "*** error: signal(SIGHUP, handle_sighup): %s\n", strerror(errno));
             }
-            status = 1;
+            status = PIPELOG_ERROR;
             goto cleanup;
-        }
-
-        if (pidfile != NULL) {
-            if (make_parent_dirs(pidfile, 755) != 0) {
-                if (!(flags & PIPELOG_QUIET)) {
-                    fprintf(stderr, "*** error: creating parent directories of pidfile \"%s\": %s\n", pidfile, strerror(errno));
-                }
-                status = 1;
-                goto cleanup;
-            }
-
-            FILE *fp = fopen(pidfile, "wx");
-            if (fp == NULL) {
-                if (!(flags & PIPELOG_QUIET)) {
-                    fprintf(stderr, "*** error: opening pidfile \"%s\": %s\n", pidfile, strerror(errno));
-                }
-                status = 1;
-                goto cleanup;
-            }
-            const pid_t pid = getpid();
-            fprintf(fp, "%d\n", pid);
-
-            fclose(fp);
         }
     }
 
@@ -324,7 +304,7 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                 fprintf(stderr, "*** error: getting flags of input file descriptor: %s\n", strerror(errno));
             }
             use_splice = false;
-        } else if (fcntl(fd, F_SETFL, infd_flags | O_NONBLOCK) == -1) {
+        } else if (!(infd_flags & O_NONBLOCK) && fcntl(fd, F_SETFL, infd_flags | O_NONBLOCK) == -1) {
             if (!(flags & PIPELOG_QUIET)) {
                 fprintf(stderr, "*** error: setting input file descriptor to non-blocking: %s\n", strerror(errno));
             }
@@ -347,7 +327,7 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                     fprintf(stderr, "*** error: output[%zu]: file descriptor must be -1 when filename given, but was: %d\n", init_count, out->fd);
                 }
                 errno = EINVAL;
-                status = 1;
+                status = PIPELOG_ERROR;
                 goto cleanup;
             }
 
@@ -361,7 +341,7 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                     if (!(flags & PIPELOG_QUIET)) {
                         fprintf(stderr, "*** error: output[%zu].filename: cannot format logfile \"%s\": %s\n", init_count, out->filename, strerror(errno));
                     }
-                    status = 1;
+                    status = PIPELOG_ERROR;
                     goto cleanup;
                 }
 
@@ -370,7 +350,7 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                     if (!(flags & PIPELOG_QUIET)) {
                         fprintf(stderr, "*** error: output[%zu]: cannot allocate string \"%s\": %s\n", init_count, buf, strerror(errno));
                     }
-                    status = 1;
+                    status = PIPELOG_ERROR;
                     goto cleanup;
                 }
             } else {
@@ -380,20 +360,22 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
             ptr->fd = open(filename, open_flags, 0644);
             if (ptr->fd < 0 && errno == ENOENT) {
                 if (make_parent_dirs(filename, 0755) != 0) {
+                    const int errnum = errno;
                     if (!(flags & PIPELOG_QUIET)) {
-                        fprintf(stderr, "*** error: output[%zu]: cannot create parent path of \"%s\": %s\n", init_count, filename, strerror(errno));
+                        fprintf(stderr, "*** error: output[%zu]: cannot create parent path of \"%s\": %s\n", init_count, filename, strerror(errnum));
                     }
-                    status = 1;
+                    status = errnum == EINTR ? PIPELOG_INTERRUPTED : PIPELOG_ERROR;
                     goto cleanup;
                 }
                 ptr->fd = open(filename, open_flags, 0644);
             }
 
             if (ptr->fd < 0) {
+                const int errnum = errno;
                 if (!(flags & PIPELOG_QUIET)) {
-                    fprintf(stderr, "*** error: output[%zu]: cannot open file \"%s\": %s\n", init_count, filename, strerror(errno));
+                    fprintf(stderr, "*** error: output[%zu]: cannot open file \"%s\": %s\n", init_count, filename, strerror(errnum));
                 }
-                status = 1;
+                status = errnum == EINTR ? PIPELOG_INTERRUPTED : PIPELOG_ERROR;
                 goto cleanup;
             }
 
@@ -403,17 +385,18 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                     if (!(flags & PIPELOG_QUIET)) {
                         fprintf(stderr, "*** error: output[%zu]: seeking file to end \"%s\": %s\n", init_count, filename, strerror(errno));
                     }
-                    status = 1;
+                    status = PIPELOG_ERROR;
                     goto cleanup;
                 }
             }
 
             if (out->link != NULL) {
                 if (make_parent_dirs(out->link, 0755) != 0) {
+                    const int errnum = errno;
                     if (!(flags & PIPELOG_QUIET)) {
-                        fprintf(stderr, "*** error: output[%zu]: cannot create parent path of \"%s\": %s\n", init_count, out->link, strerror(errno));
+                        fprintf(stderr, "*** error: output[%zu]: cannot create parent path of \"%s\": %s\n", init_count, out->link, strerror(errnum));
                     }
-                    status = 1;
+                    status = errnum == EINTR ? PIPELOG_INTERRUPTED : PIPELOG_ERROR;
                     goto cleanup;
                 }
 
@@ -421,24 +404,26 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                     if (!(flags & PIPELOG_QUIET)) {
                         fprintf(stderr, "*** error: output[%zu]: cannot unlink \"%s\": %s\n", init_count, out->link, strerror(errno));
                     }
-                    status = 1;
+                    status = PIPELOG_ERROR;
                     goto cleanup;
                 }
 
                 char *absfilename = realpath(filename, link_target);
                 if (absfilename == NULL) {
+                    const int errnum = errno;
                     if (!(flags & PIPELOG_QUIET)) {
-                        fprintf(stderr, "*** error: output[%zu]: cannot get absolute path of \"%s\": %s\n", init_count, filename, strerror(errno));
+                        fprintf(stderr, "*** error: output[%zu]: cannot get absolute path of \"%s\": %s\n", init_count, filename, strerror(errnum));
                     }
-                    status = 1;
+                    status = errnum == EINTR ? PIPELOG_INTERRUPTED : PIPELOG_ERROR;
                     goto cleanup;
                 }
 
                 if (symlink(absfilename, out->link) != 0) {
+                    const int errnum = errno;
                     if (!(flags & PIPELOG_QUIET)) {
-                        fprintf(stderr, "*** error: output[%zu]: cannot create symbolic link at \"%s\": %s\n", init_count, out->link, strerror(errno));
+                        fprintf(stderr, "*** error: output[%zu]: cannot create symbolic link at \"%s\": %s\n", init_count, out->link, strerror(errnum));
                     }
-                    status = 1;
+                    status = errnum == EINTR ? PIPELOG_INTERRUPTED : PIPELOG_ERROR;
                     goto cleanup;
                 }
             }
@@ -448,7 +433,7 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                     fprintf(stderr, "*** error: output[%zu]: illegal file descriptor: %d\n", init_count, out->fd);
                 }
                 errno = EINVAL;
-                status = 1;
+                status = PIPELOG_ERROR;
                 goto cleanup;
             }
 
@@ -457,7 +442,7 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                     fprintf(stderr, "*** error: output[%zu]: link has to be NULL if filename is NULL\n", init_count);
                 }
                 errno = EINVAL;
-                status = 1;
+                status = PIPELOG_ERROR;
                 goto cleanup;
             }
 
@@ -469,7 +454,7 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
         if (!(flags & PIPELOG_QUIET)) {
             fprintf(stderr, "*** error: unblocking SIGHUP: %s\n", strerror(errno));
         }
-        status = 1;
+        status = PIPELOG_ERROR;
         goto cleanup;
     }
 
@@ -484,11 +469,19 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                     if (!(flags & PIPELOG_QUIET)) {
                         fprintf(stderr, "*** error: getting local time: %s\n", strerror(errno));
                     }
-                    status = 1;
+                    status = PIPELOG_ERROR;
                     goto cleanup;
                 }
 
-                get_outfd(output, state, 0, &local_now, flags | PIPELOG_FORCE_ROTATE | PIPELOG_BLOCK_SIGHUP | PIPELOG_SPLICE);
+                int outfd = get_outfd(output, state, 0, &local_now, flags | PIPELOG_FORCE_ROTATE | PIPELOG_BLOCK_SIGHUP | PIPELOG_SPLICE);
+                if (outfd < 0 && !(flags & PIPELOG_EXIT_ON_WRITE_ERROR)) {
+                    const int errnum = errno;
+                    if (!(flags & PIPELOG_QUIET)) {
+                        fprintf(stderr, "*** error: writing output: %s\n", strerror(errnum));
+                    }
+                    status = errnum == EINTR ? PIPELOG_INTERRUPTED : PIPELOG_ERROR;
+                    goto cleanup;
+                }
             }
 
             struct pollfd pollfds[] = { { fd, POLLIN, 0 } };
@@ -506,16 +499,24 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                             if (!(flags & PIPELOG_QUIET)) {
                                 fprintf(stderr, "*** error: getting local time: %s\n", strerror(errno));
                             }
-                            status = 1;
+                            status = PIPELOG_ERROR;
                             goto cleanup;
                         }
 
-                        get_outfd(output, state, 0, &local_now, flags | PIPELOG_FORCE_ROTATE | PIPELOG_BLOCK_SIGHUP | PIPELOG_SPLICE);
+                        int outfd = get_outfd(output, state, 0, &local_now, flags | PIPELOG_FORCE_ROTATE | PIPELOG_BLOCK_SIGHUP | PIPELOG_SPLICE);
+                        if (outfd < 0 && !(flags & PIPELOG_EXIT_ON_WRITE_ERROR)) {
+                            const int errnum = errno;
+                            if (!(flags & PIPELOG_QUIET)) {
+                                fprintf(stderr, "*** error: writing output: %s\n", strerror(errnum));
+                            }
+                            status = errnum == EINTR ? PIPELOG_INTERRUPTED : PIPELOG_ERROR;
+                            goto cleanup;
+                        }
                     } else {
                         if (!(flags & PIPELOG_QUIET)) {
                             fprintf(stderr, "*** error: polling input: %s\n", strerror(errnum));
                         }
-                        status = 1;
+                        status = errnum == EINTR ? PIPELOG_INTERRUPTED : PIPELOG_ERROR;
                         goto cleanup;
                     }
                 } else {
@@ -530,7 +531,7 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                     if (!(flags & PIPELOG_QUIET)) {
                         fprintf(stderr, "*** error: getting local time: %s\n", strerror(errno));
                     }
-                    status = 1;
+                    status = PIPELOG_ERROR;
                     goto cleanup;
                 }
             }
@@ -567,7 +568,7 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                                 if (!(flags & PIPELOG_QUIET)) {
                                     fprintf(stderr, "*** error: getting local time: %s\n", strerror(errno));
                                 }
-                                status = 1;
+                                status = PIPELOG_ERROR;
                                 goto cleanup;
                             }
                             outfd = get_outfd(output, state, 0, &local_now, flags | PIPELOG_FORCE_ROTATE | PIPELOG_BLOCK_SIGHUP | PIPELOG_SPLICE);
@@ -578,7 +579,7 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                             if (!(flags & PIPELOG_QUIET)) {
                                 fprintf(stderr, "*** error: splice failed, retrying slow path: %s\n", strerror(errnum));
                             }
-                            status = 1;
+                            status = errnum == EINTR ? PIPELOG_INTERRUPTED : PIPELOG_ERROR;
                             goto cleanup;
                         }
                     } else if (wcount == 0) {
@@ -587,6 +588,13 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                         break;
                     }
                 }
+            } else if (!(flags & PIPELOG_EXIT_ON_WRITE_ERROR)) {
+                const int errnum = errno;
+                if (!(flags & PIPELOG_QUIET)) {
+                    fprintf(stderr, "*** error: writing output: %s\n", strerror(errnum));
+                }
+                status = errnum == EINTR ? PIPELOG_INTERRUPTED : PIPELOG_ERROR;
+                goto cleanup;
             }
         } else { // !use_splice
             unsigned int get_outfd_flags = flags;
@@ -610,7 +618,7 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                         if (!(flags & PIPELOG_QUIET)) {
                             fprintf(stderr, "*** error: reading input: %s\n", strerror(errnum));
                         }
-                        status = 1;
+                        status = errnum == EINTR ? PIPELOG_INTERRUPTED : PIPELOG_ERROR;
                         goto cleanup;
                     }
                 }
@@ -621,7 +629,7 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                 if (!(flags & PIPELOG_QUIET)) {
                     fprintf(stderr, "*** error: blocking SIGHUP: %s\n", strerror(errno));
                 }
-                status = 1;
+                status = PIPELOG_ERROR;
                 goto cleanup;
             }
 
@@ -632,7 +640,7 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                     if (!(flags & PIPELOG_QUIET)) {
                         fprintf(stderr, "*** error: getting local time: %s\n", strerror(errno));
                     }
-                    status = 1;
+                    status = PIPELOG_ERROR;
                     goto cleanup;
                 }
             }
@@ -651,12 +659,12 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                             }
 
                             if (errnum == EINTR) {
-                                status = 1;
+                                status = PIPELOG_INTERRUPTED;
                                 goto cleanup;
                             }
 
                             if ((flags & PIPELOG_EXIT_ON_WRITE_ERROR)) {
-                                status = 1;
+                                status = PIPELOG_ERROR;
                                 goto cleanup;
                             }
 
@@ -667,6 +675,13 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                         }
                         offset += wcount;
                     }
+                } else if (!(flags & PIPELOG_EXIT_ON_WRITE_ERROR)) {
+                    const int errnum = errno;
+                    if (!(flags & PIPELOG_QUIET)) {
+                        fprintf(stderr, "*** error: output[%zu]: writing output: %s\n", index, strerror(errnum));
+                    }
+                    status = errnum == EINTR ? PIPELOG_INTERRUPTED : PIPELOG_ERROR;
+                    goto cleanup;
                 }
             }
 
@@ -674,7 +689,7 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                 if (!(flags & PIPELOG_QUIET)) {
                     fprintf(stderr, "*** error: unblocking SIGHUP: %s\n", strerror(errno));
                 }
-                status = 1;
+                status = PIPELOG_ERROR;
                 goto cleanup;
             }
         }
@@ -694,11 +709,12 @@ cleanup:
     free(state);
     state = NULL;
 
-    if (pidfile != NULL && unlink(pidfile) != 0) {
+    if (old_handle_sighup != SIG_ERR && signal(SIGHUP, old_handle_sighup) == SIG_ERR) {
         if (!(flags & PIPELOG_QUIET)) {
-            fprintf(stderr, "*** error: removing pidfile \"%s\": %s\n", pidfile, strerror(errno));
+            fprintf(stderr, "*** error: signal(SIGHUP, old_handle_sighup): %s\n", strerror(errno));
         }
-        status = 1;
+        status = PIPELOG_ERROR;
+        goto cleanup;
     }
 
     return status;
