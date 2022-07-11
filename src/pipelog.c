@@ -18,7 +18,7 @@
 
 struct Pipelog_State {
     char *filename; //!< actual formatted filename
-    int fd;         //!< opened filename
+    int   fd;       //!< opened filename
 };
 
 static volatile bool received_sighup = false;
@@ -84,20 +84,30 @@ static int get_outfd(const struct Pipelog_Output output[], struct Pipelog_State 
     int outfd = ptr->fd;
     sigset_t mask;
     bool unblock_sighup = false;
+    const struct Pipelog_Output *out = &output[index];
 
-    if (ptr->filename) {
-        const struct Pipelog_Output *out = &output[index];
-        if (strftime(buf, sizeof(buf), out->filename, local_now) == 0) {
-            if (!(flags & PIPELOG_QUIET)) {
-                const int errnum = errno;
-                fprintf(stderr, "*** error: output[%zu]: cannot format logfile \"%s\": %s\n", index, out->filename, strerror(errnum));
-                errno = errnum;
+    if (out->filename != NULL) {
+        const bool has_format = ptr->filename != NULL;
+        bool new_name;
+        const char *filename;
+
+        if (has_format) {
+            if (strftime(buf, sizeof(buf), out->filename, local_now) == 0) {
+                if (!(flags & PIPELOG_QUIET)) {
+                    const int errnum = errno;
+                    fprintf(stderr, "*** error: output[%zu]: cannot format logfile \"%s\": %s\n", index, out->filename, strerror(errnum));
+                    errno = errnum;
+                }
+                outfd = -1;
+                goto cleanup;
             }
-            outfd = -1;
-            goto cleanup;
+            filename = buf;
+            new_name = strcmp(ptr->filename, filename) != 0;
+        } else {
+            filename = out->filename;
+            new_name = false;
         }
 
-        const bool new_name = strcmp(ptr->filename, buf) != 0;
         if (outfd < 0 || new_name || (flags & PIPELOG_FORCE_ROTATE)) {
             // defer delivery of SIGHUP until after all log handling
             if (flags & PIPELOG_BLOCK_SIGHUP) {
@@ -119,7 +129,7 @@ static int get_outfd(const struct Pipelog_Output output[], struct Pipelog_State 
 
             if (outfd >= 0 && close(outfd) != 0) {
                 if (!(flags & PIPELOG_QUIET)) {
-                    fprintf(stderr, "*** error: output[%zu]: closing file \"%s\": %s\n", index, ptr->filename, strerror(errno));
+                    fprintf(stderr, "*** error: output[%zu]: closing file \"%s\": %s\n", index, filename, strerror(errno));
                 }
             }
 
@@ -144,24 +154,24 @@ static int get_outfd(const struct Pipelog_Output output[], struct Pipelog_State 
             const int open_flags = flags & PIPELOG_SPLICE ?
                 O_CREAT | O_RDWR | O_CLOEXEC :
                 O_CREAT | O_WRONLY | O_CLOEXEC | O_APPEND;
-            ptr->fd = outfd = open(ptr->filename, open_flags, 0644);
+            ptr->fd = outfd = open(filename, open_flags, 0644);
             if (outfd < 0 && errno == ENOENT) {
-                if (make_parent_dirs(ptr->filename, 0755) != 0) {
+                if (make_parent_dirs(filename, 0755) != 0) {
                     if (!(flags & PIPELOG_QUIET)) {
                         const int errnum = errno;
-                        fprintf(stderr, "*** error: output[%zu]: cannot create parent path of \"%s\": %s\n", index, ptr->filename, strerror(errnum));
+                        fprintf(stderr, "*** error: output[%zu]: cannot create parent path of \"%s\": %s\n", index, filename, strerror(errnum));
                         errno = errnum;
                     }
                     outfd = -1;
                     goto cleanup;
                 }
-                ptr->fd = outfd = open(ptr->filename, open_flags, 0644);
+                ptr->fd = outfd = open(filename, open_flags, 0644);
             }
 
             if (outfd < 0) {
                 if (!(flags & PIPELOG_QUIET)) {
                     const int errnum = errno;
-                    fprintf(stderr, "*** error: output[%zu]: opening file \"%s\": %s\n", index, ptr->filename, strerror(errnum));
+                    fprintf(stderr, "*** error: output[%zu]: opening file \"%s\": %s\n", index, filename, strerror(errnum));
                     errno = errnum;
                 }
 
@@ -172,7 +182,7 @@ static int get_outfd(const struct Pipelog_Output output[], struct Pipelog_State 
                     const int errnum = errno;
                     if (errnum != EPIPE) {
                         if (!(flags & PIPELOG_QUIET)) {
-                            fprintf(stderr, "*** error: output[%zu]: seeking file to end \"%s\": %s\n", index, ptr->filename, strerror(errnum));
+                            fprintf(stderr, "*** error: output[%zu]: seeking file to end \"%s\": %s\n", index, filename, strerror(errnum));
                         }
                         if (flags & PIPELOG_EXIT_ON_WRITE_ERROR) {
                             close(outfd);
@@ -197,11 +207,11 @@ static int get_outfd(const struct Pipelog_Output output[], struct Pipelog_State 
                         goto cleanup;
                     }
 
-                    char *absfilename = realpath(ptr->filename, buf);
+                    char *absfilename = realpath(filename, buf);
                     if (absfilename == NULL) {
                         const int errnum = errno;
                         if (!(flags & PIPELOG_QUIET)) {
-                            fprintf(stderr, "*** error: output[%zu]: cannot get absolute path of \"%s\": %s\n", index, ptr->filename, strerror(errnum));
+                            fprintf(stderr, "*** error: output[%zu]: cannot get absolute path of \"%s\": %s\n", index, filename, strerror(errnum));
                         }
                         if (flags & PIPELOG_EXIT_ON_WRITE_ERROR) {
                             close(outfd);
@@ -331,10 +341,10 @@ int pipelog(const int fd, const struct Pipelog_Output output[], const size_t cou
                 goto cleanup;
             }
 
-            bool rotate = strchr(out->filename, '%');
+            const bool has_format = strchr(out->filename, '%') != NULL;
 
             const char *filename;
-            if (rotate) {
+            if (has_format) {
                 any_rotate = true;
 
                 if (strftime(buf, sizeof(buf), out->filename, &local_now) == 0) {
