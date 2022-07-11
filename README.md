@@ -33,6 +33,9 @@ OPTIONS:
     -h, --help                 Print this help message.
     -v, --version              Print version.
     -p, --pidfile=FILE         Write pipelog's process ID to FILE.
+                               Send SIGINT or SIGTERM to this process ID for
+                               graceful shutdown before the input stream
+                               ended.
     -f, --fifo=FILE            Read input from FILE, create FILE as fifo if
                                not exists and re-open file when at end.
     -q, --quiet                Don't print error messages.
